@@ -306,10 +306,17 @@ print(y_train[not_padded_train * ~ftt_train].flatten().mean(),
 # COMMAND ----------
 
 model = keras.Sequential()
-model.add(keras.layers.Input((None, len(feature_list))))
-model.add(keras.layers.LSTM(len(feature_list)))
-model.add(keras.layers.Dense(len(feature_list)//2, activation='relu'))
-model.add(keras.layers.Dense(len(feature_list)//4, activation='relu'))
+model.add(keras.layers.Input((timesteps, len(feature_list))))
+
+model.add(keras.layers.LSTM(len(feature_list), activation='relu',
+          dropout=0.2, recurrent_dropout=0.2, seed=seed, return_sequences=True))
+
+model.add(keras.layers.LSTM(len(feature_list)//2, activation='relu',
+          dropout=0.2, recurrent_dropout=0.2, seed=seed, return_sequences=True))
+
+model.add(keras.layers.LSTM(len(feature_list)//4, activation='relu',
+          dropout=0.2, recurrent_dropout=0.2, seed=seed))
+
 model.add(keras.layers.Dense(timesteps, activation="sigmoid"))
 print(model.summary())
 
