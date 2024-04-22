@@ -221,18 +221,10 @@ print(np.average(y_train[~ftt_train]),
 
 # COMMAND ----------
 
-from imblearn.over_sampling import BorderlineSMOTE, KMeansSMOTE, SVMSMOTE
-
-# COMMAND ----------
-
-smote = BorderlineSMOTE(random_state=seed, sampling_strategy=0.1)
-X_train_SMOTE, y_train_SMOTE = smote.fit_resample(X_train, y_train)
-X_train_SMOTE.shape, y_train_SMOTE.shape
-
-# COMMAND ----------
-
 import torch
+
 torch.use_deterministic_algorithms(True)
+from imblearn.over_sampling import BorderlineSMOTE, KMeansSMOTE, SVMSMOTE
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
@@ -242,151 +234,159 @@ from numpy import trace
 from numpy import iscomplexobj
 from numpy.random import random
 from scipy.linalg import sqrtm
+
 torch.manual_seed(seed)
 
+
 def get_generator_block(input_dim, output_dim):
-  
-  return nn.Sequential(
-      nn.Linear(input_dim, output_dim),
-      nn.BatchNorm1d(output_dim),
-      nn.LeakyReLU(0.2, inplace=True),
-  )
+    return nn.Sequential(
+        nn.Linear(input_dim, output_dim),
+        nn.BatchNorm1d(output_dim),
+        nn.LeakyReLU(0.2, inplace=True),
+    )
+
 
 def get_discriminator_block(input_dim, output_dim):
-  
-  return nn.Sequential(
-      nn.Linear(input_dim, output_dim),
-      nn.LeakyReLU(0.2, inplace=True)        
-  )
+    return nn.Sequential(
+        nn.Linear(input_dim, output_dim),
+        nn.LeakyReLU(0.2, inplace=True)
+    )
 
-def early_stop(loss: list, tol=1e-04, patince=3)-> bool:
 
-  if len(loss) <= patince:
-    return False
-  
-  else:
-    return all([loss[-3] - loss[-2] < tol,
-                loss[-2] - loss[-1] < tol])
+def early_stop(loss: list, tol=1e-04, patince=3) -> bool:
+    if len(loss) <= patince:
+        return False
 
-def shuffle_in_unison(a, b): 
-  
-  assert len(a) == len(b)
-  shuffled_a = np.empty(a.shape, dtype=a.dtype) 
-  shuffled_b = np.empty(b.shape, dtype=b.dtype)
-  permutation = np.random.permutation(len(a))
-  
-  for old_index, new_index in enumerate(permutation):
-      shuffled_a[new_index] = a[old_index]
-      shuffled_b[new_index] = b[old_index]
-  
-  return shuffled_a, shuffled_b
+    else:
+        return all([loss[-3] - loss[-2] < tol,
+                    loss[-2] - loss[-1] < tol])
 
-def apply_smote_gan(X_min_real, y_min_real, X_min_fake, y_min_fake, X_maj_real, y_maj_real, 
-                    epochs=100):
 
-    # 1. Extract the Minority class samples and Smote samples
+def shuffle_in_unison(a, b):
+    assert len(a) == len(b)
+    shuffled_a = np.empty(a.shape, dtype=a.dtype)
+    shuffled_b = np.empty(b.shape, dtype=b.dtype)
+    permutation = np.random.permutation(len(a))
+
+    for old_index, new_index in enumerate(permutation):
+        shuffled_a[new_index] = a[old_index]
+        shuffled_b[new_index] = b[old_index]
+
+    return shuffled_a, shuffled_b
+
+
+def apply_smote_gan(X_train, y_train, min_maj_desired_ratio=0.1, epochs=100, seed=seed):
+    # Run SMOTE
+    smote = BorderlineSMOTE(random_state=seed, sampling_strategy=min_maj_desired_ratio)
+    X_train_SMOTE, y_train_SMOTE = smote.fit_resample(X_train, y_train)
+
+    X_min_real = X_train[y_train == 1]
+    y_min_real = y_train[y_train == 1]
+
+    X_maj_real = X_train[y_train == 0]
+    y_maj_real = y_train[y_train == 0]
+
+    X_min_fake = X_train_SMOTE[X_train.shape[0]:]
+    y_min_fake = y_train_SMOTE[y_train.shape[0]:]
+
+    # 1. Extract the Minority and Majority class samples with Smote samples
     if isinstance(X_min_real, pd.DataFrame):
-      X_min_real = X_min_real.values
+        X_min_real = X_min_real.values
 
     if isinstance(y_min_real, pd.DataFrame) or isinstance(y_min_real, pd.Series):
-      y_min_real = y_min_real.values.reshape(-1,1)
+        y_min_real = y_min_real.values.reshape(-1, 1)
 
     if isinstance(X_min_fake, pd.DataFrame):
-      X_min_fake = X_min_fake.values
+        X_min_fake = X_min_fake.values
 
     if isinstance(y_min_fake, pd.DataFrame) or isinstance(y_min_fake, pd.Series):
-      y_min_fake = y_min_fake.values.reshape(-1,1)
+        y_min_fake = y_min_fake.values.reshape(-1, 1)
 
     if isinstance(X_maj_real, pd.DataFrame):
-      X_maj_real = X_maj_real.values
+        X_maj_real = X_maj_real.values
 
     if isinstance(y_maj_real, pd.DataFrame) or isinstance(y_maj_real, pd.Series):
-      y_maj_real = y_maj_real.values.reshape(-1,1)
+        y_maj_real = y_maj_real.values.reshape(-1, 1)
 
     X_real_tensor = torch.FloatTensor(X_min_real)
     y_real_tensor = torch.FloatTensor(y_min_real)
     X_fake_tensor = torch.FloatTensor(X_min_fake)
     y_fake_tensor = torch.FloatTensor(y_min_fake)
-    
+
     # 2. Define the GAN model layers
     generator_layers = nn.Sequential(
-      get_generator_block(X_real_tensor.shape[1], 128),
-      nn.Linear(128, X_real_tensor.shape[1]),
+        get_generator_block(X_real_tensor.shape[1], 128),
+        nn.Linear(128, X_real_tensor.shape[1]),
     )
 
     discriminator_layers = nn.Sequential(
-      get_discriminator_block(X_fake_tensor.shape[1], 128),
-      nn.Linear(in_features=128, out_features=y_real_tensor.shape[1]),
+        get_discriminator_block(X_fake_tensor.shape[1], 128),
+        nn.Linear(in_features=128, out_features=y_real_tensor.shape[1]),
     )
 
     bce_logits_criterion = nn.BCEWithLogitsLoss(reduction='mean')
     optimizer_g = optim.AdamW(generator_layers.parameters(), lr=0.01)
     optimizer_d = optim.AdamW(discriminator_layers.parameters(), lr=0.001)
-    
+
     # 3. Train GAN
     disc_loss = []
     gen_loss = []
     for epoch in tqdm(range(epochs)):
-      
-      # Train Discriminator
-      optimizer_d.zero_grad()
 
-      # Pass real data through discriminator
-      real_preds = discriminator_layers(X_real_tensor)
-      loss_real = bce_logits_criterion(real_preds, y_real_tensor)
-     
-      # Generate fake data 
-      fake_data = generator_layers(X_fake_tensor)
-      
-      # Pass fake data through discriminator    
-      fake_preds = discriminator_layers(fake_data)
-      fake_labels = torch.zeros(len(X_fake_tensor), 1)
-      loss_fake = bce_logits_criterion(fake_preds, fake_labels)
+        # Train Discriminator
+        optimizer_d.zero_grad()
 
-      loss_d = (loss_real + loss_fake)/2
-      loss_d.backward()
-      optimizer_d.step()
+        # Pass real data through discriminator
+        real_preds = discriminator_layers(X_real_tensor)
+        loss_real = bce_logits_criterion(real_preds, y_real_tensor)
 
-      # Train Generator
-      optimizer_g.zero_grad()
-      
-      # Generate fake images
-      fake_data = generator_layers(X_fake_tensor)
-      
-      # Try to fool the discriminator
-      fake_preds = discriminator_layers(fake_data)
-      loss_g = bce_logits_criterion(fake_preds, y_fake_tensor)
-      loss_g.backward()
-      optimizer_g.step()
+        # Generate fake data
+        fake_data = generator_layers(X_fake_tensor)
 
-      disc_loss.append(loss_d.item())
-      gen_loss.append(loss_g.item())
+        # Pass fake data through discriminator
+        fake_preds = discriminator_layers(fake_data)
+        fake_labels = torch.zeros(len(X_fake_tensor), 1)
+        loss_fake = bce_logits_criterion(fake_preds, fake_labels)
 
-      if early_stop(gen_loss):
-        print(f"met early stopping criteria with min gen loss: {gen_loss[-1]}")
-        break
+        loss_d = (loss_real + loss_fake) / 2
+        loss_d.backward()
+        optimizer_d.step()
+
+        # Train Generator
+        optimizer_g.zero_grad()
+
+        # Generate fake images
+        fake_data = generator_layers(X_fake_tensor)
+
+        # Try to fool the discriminator
+        fake_preds = discriminator_layers(fake_data)
+        loss_g = bce_logits_criterion(fake_preds, y_fake_tensor)
+        loss_g.backward()
+        optimizer_g.step()
+
+        disc_loss.append(loss_d.item())
+        gen_loss.append(loss_g.item())
+
+        if early_stop(gen_loss):
+            print(f"met early stopping criteria with min gen loss: {gen_loss[-1]}")
+            break
 
     # 4. Generate synthetic samples
     with torch.no_grad():
-      synthetic_samples = generator_layers(X_fake_tensor).numpy()
-      # print(calculate_fid(X_min_real, synthetic_samples))
+        synthetic_samples = generator_layers(X_fake_tensor).numpy()
+        # print(calculate_fid(X_min_real, synthetic_samples))
 
     # Append the synthetic samples to original X and adjust y accordingly
     X_resampled = np.vstack([X_min_real, synthetic_samples, X_maj_real])
     y_resampled = np.hstack([y_min_real.flatten(), y_min_fake.flatten(), y_maj_real.flatten()])
 
-    print(pd.DataFrame(zip(disc_loss, gen_loss), columns = ['disc_loss', 'gen_loss']).plot())
+    print(pd.DataFrame(zip(disc_loss, gen_loss), columns=['disc_loss', 'gen_loss']).plot())
 
     return shuffle_in_unison(X_resampled, y_resampled)
 
 # COMMAND ----------
 
-X_train_oversampled = X_train_SMOTE[X_train.shape[0]:]
-y_train_oversampled = y_train_SMOTE[y_train.shape[0]:]
-
-X_train_resampled, y_train_resampled = apply_smote_gan(X_min_train, y_min_train, 
-                                                      X_train_oversampled, y_train_oversampled,
-                                                      X_maj_train, y_maj_train, 100)
+X_train_resampled, y_train_resampled = apply_smote_gan(X_train, y_train, 0.1, 100)
 
 # COMMAND ----------
 
