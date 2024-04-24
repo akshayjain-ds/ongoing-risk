@@ -4,7 +4,6 @@
 # COMMAND ----------
 
 train_transformed_df = load_dataset('/dbfs/Users/sri.duddu@tide.co/train_transformed_df_llm').toPandas()
-
 test_transformed_df = load_dataset('/dbfs/Users/sri.duddu@tide.co/test_transformed_df_llm').toPandas()
 
 # COMMAND ----------
@@ -189,6 +188,10 @@ train_transformed_df_llm.shape, test_transformed_df_llm.shape
 
 # COMMAND ----------
 
+train_transformed_df_llm['label']
+
+# COMMAND ----------
+
 gc.collect()
 del train_transformed_df, test_transformed_df
 
@@ -240,8 +243,8 @@ def tokenize_function(examples):
 from datasets import Dataset
 
 # # Convert to Hugging Face Dataset format
-train_dataset = Dataset.from_pandas(train_transformed_df_llm)
-test_dataset = Dataset.from_pandas(test_transformed_df_llm)
+train_dataset = Dataset.from_pandas(train_transformed_df_llm[['text', 'label']])
+test_dataset = Dataset.from_pandas(test_transformed_df_llm[['text', 'label']])
 
 train_inputs = train_dataset.map(tokenize_function, batched=True)
 test_inputs = test_dataset.map(tokenize_function, batched=True)
@@ -251,6 +254,10 @@ train_inputs = train_inputs.map(lambda x: {'labels': x['label']})
 test_inputs = test_inputs.map(lambda x: {'labels': x['label']})
 
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+
+# COMMAND ----------
+
+test_inputs
 
 # COMMAND ----------
 
@@ -267,7 +274,7 @@ def compute_metrics(eval_pred):
     return f1.compute(predictions=predictions, references=labels)
 
 training_args = TrainingArguments(
-    output_dir="my_awesome_model",
+    output_dir="my_awesome_model_test",
     learning_rate=2e-5,
     per_device_train_batch_size=1,
     per_device_eval_batch_size=1,

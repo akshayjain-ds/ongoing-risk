@@ -23,6 +23,7 @@
 %pip install datasets
 %pip install evaluate
 %pip install lime
+%pip install mlflow
 # %pip install tabgan
 
 # COMMAND ----------
