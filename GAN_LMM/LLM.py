@@ -232,7 +232,7 @@ training_args = TrainingArguments(
     num_train_epochs=epochs,
     evaluation_strategy="steps",
     load_best_model_at_end = True,
-    greater_is_better=True,
+    # greater_is_better=True,
     logging_dir='./logs',
 )
 training_args.device
